@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see https://www.gnu.org/licenses/
 
-$App_Version = "2019-01-23-2200"
+$App_Version = "2019-01-24-0005"
 
 Clear-Host
 Set-PSDebug -strict
@@ -57,7 +57,7 @@ $ComputersNotPatching = @()
 $ExcludedSvrs = ""
 $wsus = ""
 
-"Company, ServerName, FQDN, LastCheckIn, TotalPatches, FailedPatches, ApprovedPatches" | Out-file -FilePath $ReportFile
+"Company,ServerName,FQDN,LastCheckIn,TotalPatches,FailedPatches,ApprovedPatches" | Out-file -FilePath $ReportFile -encoding ASCII
 
 If ($Cfg_ExcludedServerFile) {
 	If(Test-Path $Cfg_ExcludedServerFile) { 
@@ -140,7 +140,7 @@ ForEach($Computer in $Computers) {
 	} else {
 			$svrshortname = $WsusComputerName
 	}
-	$reportline = "$wsuspatchgroup, $svrshortname, $WsusComputerName, $WsusLastCheckin, $WsusTotalUpdateCount, $WsusFailedPatchCount,"
+	$reportline = "$wsuspatchgroup,$svrshortname,$WsusComputerName,$WsusLastCheckin,$WsusTotalUpdateCount,$WsusFailedPatchCount,"
 	If ($ExcludedSvrs -ne "") {
 		ForEach($ExcludedSvr in $ExcludedSvrs) {
 			If ($Header -match $ExcludedSvr) {
@@ -181,7 +181,7 @@ ForEach($Computer in $Computers) {
                     $UserMessage = New-Object System.Net.Mail.MailMessage
                     $UserMessage.From = New-Object System.Net.Mail.MailAddress($Cfg_Email_From_Address)
                     $UserMessage.To.Add($UserMail)
-                    $UserMessage.Subject = $Cfg_Email_Subject_User + " - " + (get-date).ToString("dd/MM/yyyy")
+                    $UserMessage.Subject = $Cfg_Email_Subject_User + " $svrshortname - " + (get-date).ToString("dd/MM/yyyy")
                     $UserMessage.isBodyHtml = $true
                     $UserMessage.Body = $UserBody
                     Write-Output "Sending Not Checked In e-mail to $UserMail"
@@ -251,7 +251,7 @@ ForEach($Computer in $Computers) {
                         $UserMessage = New-Object System.Net.Mail.MailMessage
                         $UserMessage.From = New-Object System.Net.Mail.MailAddress($Cfg_Email_From_Address)
                         $UserMessage.To.Add($UserMail)
-                        $UserMessage.Subject = $Cfg_Email_Subject_User + " - " + (get-date).ToString("dd/MM/yyyy")
+                        $UserMessage.Subject = $Cfg_Email_Subject_User + " $svrshortname - " + (get-date).ToString("dd/MM/yyyy")
                         $UserMessage.isBodyHtml = $true
                         $UserMessage.Body = $UserBody
                         Write-Output "Sending Outstanding Patches e-mail to $UserMail"
@@ -262,7 +262,7 @@ ForEach($Computer in $Computers) {
 		}
 	}
     #Write-Host $reportline
-	$reportline | Out-file -FilePath $ReportFile -Append
+	$reportline | Out-file -FilePath $ReportFile -Append -encoding ASCII
     
 }
 $EndTime = (get-date).ToString("dd-MM-yyyy HH:mm:ss")
