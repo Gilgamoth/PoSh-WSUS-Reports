@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see https://www.gnu.org/licenses/
 
-$App_Version = "2019-01-24-0005"
+$App_Version = "2019-01-24-0120"
 
 Clear-Host
 Set-PSDebug -strict
@@ -47,11 +47,7 @@ $ComputersNotCheckingIn = @()
 $ComputersNotCheckingInCount = 0
 $ReportFile = $Cfg_BaseReportFolder + "report.csv"
 $Emailbody =  $Cfg_BaseReportFolder + "emailbody.txt"
-$Today=(get-date).ToString("yyyy-MM-dd")
-$UnapprovedUpdateCount = 0
-$UnapprovedUpdates = @()
-$NewPatchesFound = 0
-$NewPatches = @()
+$Today=(get-date).ToString("yyyy-MM-dd HH:mm:ss")
 $UnassignedComputers = @()
 $ComputersNotPatching = @()
 $ExcludedSvrs = ""
@@ -125,7 +121,6 @@ ForEach($Computer in $Computers) {
 	$WsusFailedPatchCount = $WsusTotalPatchCount.FailedCount
 	$WsusReqPatchCount = $Computer.GetUpdateInstallationSummary($UpdateScope)
 	$WsusLastCheckin = $Computer.LastReportedStatusTime
-	$WsusCheckinServer = $Computer.UpdateServer.ServerName
 	$WsusTotalUpdateCount = $WsusTotalPatchCount.NotInstalledCount + $WsusTotalPatchCount.DownloadedCount
 	$WsusReqUpdateCount = $WsusReqPatchCount.NotInstalledCount + $WsusReqPatchCount.DownloadedCount + $WsusTotalPatchCount.FailedCount
 	[int]$PatchGroup="0"
@@ -163,11 +158,13 @@ ForEach($Computer in $Computers) {
 		{
 			$Header = $WsusPatchGroup + "\" + $WsusComputerName + " >> Not Checked In in last " + $Cfg_DaysSinceCheckIn + " Days"
 			write-host $Header -ForegroundColor Red
-			(get-date).ToString("dd-MM-yyyy HH:mm") + "<BR>" | Out-File -FilePath $ServerDetails
-			$Header + "<BR>" | Out-File -FilePath $ServerDetails -Append
+			"Report Generated $Today" | Out-File -FilePath $ServerDetails
+			$Header | Out-File -FilePath $ServerDetails -Append
 			$ComputersNotCheckingInCount += 1
 			$ComputersNotCheckingIn += $WsusPatchGroup + "\" + $WsusComputerName + " (" + (get-date($WsusLastCheckin)).ToString("dd/MM/yyyy") + ")"
-            ForEach($UserDetail in $UsersFile) {
+            $reportline += "Not Checking In"
+			
+			ForEach($UserDetail in $UsersFile) {
                 If(($UserDetail.computer -eq $svrshortname)) {
                     $UserName = $UserDetail.name
                     $UserMail = $UserDetail.mail + $Cfg_Email_Domain
@@ -175,17 +172,20 @@ ForEach($Computer in $Computers) {
                     $UserBody += (get-date($WsusLastCheckin)).ToString("dd/MM/yyyy")
                     $UserBody += ".<br><br>Please contact the service desk to correct this at your earliest convenience.<br>"
             
-                    Write-Host "`nSending E-Mail to" $UserMail
-                    $UserSmtp = New-Object System.Net.Mail.SmtpClient -argumentList $Cfg_Email_Server
-                    #$smtp.Credentials = New-Object System.Net.NetworkCredential -argumentList $Cfg_Smtp_User,$Cfg_Smtp_Password
-                    $UserMessage = New-Object System.Net.Mail.MailMessage
-                    $UserMessage.From = New-Object System.Net.Mail.MailAddress($Cfg_Email_From_Address)
-                    $UserMessage.To.Add($UserMail)
-                    $UserMessage.Subject = $Cfg_Email_Subject_User + " $svrshortname - " + (get-date).ToString("dd/MM/yyyy")
-                    $UserMessage.isBodyHtml = $true
-                    $UserMessage.Body = $UserBody
-                    Write-Output "Sending Not Checked In e-mail to $UserMail"
-                    $UserSmtp.Send($UserMessage)
+                    if ($Cfg_Email_User_Send) {
+						$UserSmtp = New-Object System.Net.Mail.SmtpClient -argumentList $Cfg_Email_Server
+						If($Cfg_Smtp_User) {
+							$smtp.Credentials = New-Object System.Net.NetworkCredential -argumentList $Cfg_Smtp_User,$Cfg_Smtp_Password
+						}
+						$UserMessage = New-Object System.Net.Mail.MailMessage
+						$UserMessage.From = New-Object System.Net.Mail.MailAddress($Cfg_Email_From_Address)
+						$UserMessage.To.Add($UserMail)
+						$UserMessage.Subject = $Cfg_Email_Subject_User + " $svrshortname - " + (get-date).ToString("dd/MM/yyyy")
+						$UserMessage.isBodyHtml = $true
+						$UserMessage.Body = $UserBody
+						Write-Output "Sending Not Checked In e-mail to $UserMail"
+						$UserSmtp.Send($UserMessage)
+					}
                 }
             }
 		}
@@ -193,46 +193,31 @@ ForEach($Computer in $Computers) {
 		{
 			# Find all Updates in Update Scope for This Computer
 			
-			$Header = $WsusPatchGroup + "\" + $WsusComputerName + " >> " + $WsusTotalUpdateCount + " Total Updates >> " + $WsusFailedPatchCount + " Failed Patches "
+			$Header = $WsusPatchGroup + "\" + $WsusComputerName + " >> " + $WsusTotalUpdateCount + " Total Updates >>"
 			Write-Host $Header -ForegroundColor Yellow -NoNewline
-			(get-date).ToString("dd-MM-yyyy HH:mm") + "<BR>" | Out-File -FilePath $ServerDetails
-			$Header + "<BR>" | Out-File -FilePath $ServerDetails -Append
+			"Report Generated $Today" | Out-File -FilePath $ServerDetails
 
 			$NeededPatches = $Computer.GetUpdateInstallationInfoPerUpdate($UpdateScope)
 			
 			$UpdatesApproved = 0
-			$UpdatesDeclined = 0
-			$UpdatesUnapproved = 0
 			
 			ForEach ($Patch in $NeededPatches) {
-				$PatchFound=0
+				#$PatchFound=0
 				$PatchDetail = $wsus.GetUpdate($Patch.UpdateID)
 				$PatchTitle = $PatchDetail.Title
                 write-Debug $PatchTitle
-				$first=$PatchTitle.IndexOf("(")
-                if($first -gt 0) {
-				    $second = ($PatchTitle.Substring($first+1)).indexof(")")
-				    $kbnum = $PatchTitle.Substring(($first+1),($second))
-				    $kbtitle = $PatchTitle.Substring(0,($first-1))
-				    $line = $kbnum + "`t" + $PatchTitle.Substring(0,$First-1)
-                } else {
-                    $kbnum = "N/A"
-                }
 				If ($Patch.UpdateApprovalAction -eq "Install") {
                     $UpdatesApproved +=1
-                    $kbtitle = $PatchTitle
-                    $line = $kbnum + "`t" + $PatchTitle
+					$PatchTitle | Out-File -FilePath $ServerDetails -Append
                 }
 			}
-			$line = "" + $UpdatesApproved + " Approved Updates"
-			#$line +=  $UpdatesDeclined + " Declined Updates "  + $UpdatesUnapproved + " Unapproved Updates"
-			#write-host $line
+			$line = "$Header $UpdatesApproved Approved Updates"
 			$line | Out-File -FilePath $ServerDetails -Append
 			If ($UpdatesApproved -ge $Cfg_Unpatched_Threshold) {
-				Write-Host ">> $UpdatesApproved Updates Approved" -ForegroundColor Red
+				Write-Host " $UpdatesApproved Approved Updates" -ForegroundColor Red
 				$ComputersNotPatching += $WsusPatchGroup + "\" + $WsusComputerName + " - " + $UpdatesApproved + " Approved Updates"
 			} else {
-				Write-Host ">> $UpdatesApproved Updates Approved" -ForegroundColor Yellow
+				Write-Host " $UpdatesApproved Approved Updates" -ForegroundColor Yellow
 			}
 			#Write-Host "`n"
 			$reportline += $UpdatesApproved
@@ -244,17 +229,18 @@ ForEach($Computer in $Computers) {
                     $UserBody = "Dear $UserName<br>Your computer $svrshortname currently has <font color=red> $UpdatesApproved </font> windows updates approved and pending installation.<br><br>"
                     $UserBody += "Please endeavour to install these updates at your earliest convenience."
                     
-                    if ($Cfg_Email_Send) {
-                        Write-Host "`nSending E-Mail to" $UserMail
+                    if ($Cfg_Email_User_Send) {
                         $UserSmtp = New-Object System.Net.Mail.SmtpClient -argumentList $Cfg_Email_Server
-                        #$smtp.Credentials = New-Object System.Net.NetworkCredential -argumentList $Cfg_Smtp_User,$Cfg_Smtp_Password
+						If($Cfg_Smtp_User) {
+							$smtp.Credentials = New-Object System.Net.NetworkCredential -argumentList $Cfg_Smtp_User,$Cfg_Smtp_Password
+						}
                         $UserMessage = New-Object System.Net.Mail.MailMessage
                         $UserMessage.From = New-Object System.Net.Mail.MailAddress($Cfg_Email_From_Address)
                         $UserMessage.To.Add($UserMail)
                         $UserMessage.Subject = $Cfg_Email_Subject_User + " $svrshortname - " + (get-date).ToString("dd/MM/yyyy")
                         $UserMessage.isBodyHtml = $true
                         $UserMessage.Body = $UserBody
-                        Write-Output "Sending Outstanding Patches e-mail to $UserMail"
+                        Write-Output "Sending Outstanding Updates e-mail to $UserMail"
                         $UserSmtp.Send($UserMessage)
                     }
                 }
@@ -301,7 +287,7 @@ if($ComputersNotCheckingInCount -gt 0) {
 if($ComputersNotPatching.Count -gt 0) {
 	[Array]::Sort([array]$ComputersNotPatching)
 	[string]$Report = $ComputersNotPatching.Count
-	$Report += " Computers with $Cfg_Unpatched_Threshold or more approved patches outstanding"
+	$Report += " Computers with $Cfg_Unpatched_Threshold or more approved updates outstanding"
 	Write-Host "`n" -NoNewline
 	Write-Host $Report
 	"<BR><U>" | Out-File -FilePath $Emailbody -Append -encoding ASCII
@@ -311,11 +297,13 @@ if($ComputersNotPatching.Count -gt 0) {
 	}
 }
 
-if ($Cfg_Email_Send) {
+if ($Cfg_Email_Report_Send) {
     $Body = Get-Content $Emailbody
     Write-Host "`nSending Report E-Mail to" $Cfg_Email_To_Address
     $smtp = New-Object System.Net.Mail.SmtpClient -argumentList $Cfg_Email_Server
-    #$smtp.Credentials = New-Object System.Net.NetworkCredential -argumentList $Cfg_Smtp_User,$Cfg_Smtp_Password
+	If($Cfg_Smtp_User) {
+		$smtp.Credentials = New-Object System.Net.NetworkCredential -argumentList $Cfg_Smtp_User,$Cfg_Smtp_Password
+	}
     $message = New-Object System.Net.Mail.MailMessage
     $message.From = New-Object System.Net.Mail.MailAddress($Cfg_Email_From_Address)
     $message.To.Add($Cfg_Email_To_Address)

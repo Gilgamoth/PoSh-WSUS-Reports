@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see https://www.gnu.org/licenses/
 
-$Cfg_Version = "2019-01-23-2200"
+$Cfg_Version = "2019-01-24-0120"
 
 # **************************** CONFIG SECTION ****************************
 
@@ -49,8 +49,10 @@ $Cfg_Version = "2019-01-23-2200"
 	$Cfg_Email_Subject_User = "Windows Updates For Your Machine"
 	$Cfg_Email_Server = "mail.domain.local"
 	$Cfg_Email_Domain = "@domain.local"
-    $Cfg_Email_Send = $true
-    #$Cfg_Email_Send = $false
+    $Cfg_Email_Report_Send = $true
+    #$Cfg_Email_Report_Send = $false
+    $Cfg_Email_User_Send = $true
+    #$Cfg_Email_User_Send = $false
 
 # E-Mail Server Credentials to send report (Leave Blank if not Required)
 	$Cfg_Smtp_User = ""
