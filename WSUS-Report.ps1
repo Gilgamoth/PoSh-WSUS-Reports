@@ -161,7 +161,7 @@ ForEach($Computer in $Computers) {
 		{
 			$Header = $WsusPatchGroup + "\" + $WsusComputerName + " >> Not Checked In in last " + $Cfg_DaysSinceCheckIn + " Days"
 			write-host $Header -ForegroundColor Red
-			"Report Generated $Today" | Out-File -FilePath $ServerDetails
+			"Report Generated $Today <br>" | Out-File -FilePath $ServerDetails
 			$Header | Out-File -FilePath $ServerDetails -Append
 			$ComputersNotCheckingInCount += 1
 			$ComputersNotCheckingIn += $WsusPatchGroup + "\" + $WsusComputerName + " (" + (get-date($WsusLastCheckin)).ToString("dd/MM/yyyy") + ")"
