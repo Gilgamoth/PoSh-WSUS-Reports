@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see https://www.gnu.org/licenses/
 
-$App_Version = "2019-01-24-0120"
+$App_Version = "2021-04-09-1030"
 
 Clear-Host
 Set-PSDebug -strict
@@ -45,7 +45,7 @@ else
 $StartTime = (get-date).ToString("dd-MM-yyyy HH:mm:ss")
 $ComputersNotCheckingIn = @()
 $ComputersNotCheckingInCount = 0
-$ReportFile = $Cfg_BaseReportFolder + "report.csv"
+$ReportFile = $Cfg_BaseReportFolder + "index.html"
 $Emailbody =  $Cfg_BaseReportFolder + "emailbody.txt"
 $Today=(get-date).ToString("yyyy-MM-dd HH:mm:ss")
 $UnassignedComputers = @()
@@ -53,7 +53,7 @@ $ComputersNotPatching = @()
 $ExcludedSvrs = ""
 $wsus = ""
 
-"Company,ServerName,FQDN,LastCheckIn,TotalPatches,FailedPatches,ApprovedPatches" | Out-file -FilePath $ReportFile -encoding ASCII
+"<HEAD><TITLE>WSUS Report "+(get-date).ToString("yyyy-MM-dd")+"</TITLE></HEAD><BODY><TABLE border=1 width=1280><TR><TH>Server Name</TH><TH>FQDN</TH><TH>Last Check In Time</TH><TH>Total Patches</TH><TH>Required Patches</TH><TH>Failed Patches</TH><TH>Approved Patches</TH></TR>" | Out-file -FilePath $ReportFile -encoding ASCII
 
 If ($Cfg_ExcludedServerFile) {
 	If(Test-Path $Cfg_ExcludedServerFile) { 
@@ -104,14 +104,17 @@ if($Cfg_WSUSTarget) {
 	$wsus.GetComputerTargetGroups() | where {$_.Name -ne "Unassigned Computers"} | %{$ComputerScope.ComputerTargetGroups.Add($_)} | out-null
 }
 
-$Computers = $wsus.GetComputerTargets($ComputerScope)
+$Computers = $wsus.GetComputerTargets($ComputerScope) | sort -Property FullDomainName
 
-# Set Updates Scope to Critical & Security Updates for ForeFront and Windows
-
+# Set Updates Scope
 $UpdateScope = new-object Microsoft.UpdateServices.Administration.UpdateScope
 $UpdateScope.IncludedInstallationStates = [Microsoft.UpdateServices.Administration.UpdateInstallationStates]::NotInstalled, [Microsoft.UpdateServices.Administration.UpdateInstallationStates]::Downloaded, [Microsoft.UpdateServices.Administration.UpdateInstallationStates]::Failed
-#$wsus.GetUpdateClassifications() | where {"Security Updates","Critical Updates" -contains $_.Title} | %{$UpdateScope.Classifications.Add($_)} | out-null
-#$wsus.GetUpdateCategories() | where {"Windows","Forefront" -contains $_.Title} | %{$UpdateScope.Categories.Add($_)} | out-null
+
+# Exclude Definition Updates Classification
+$wsus.GetUpdateClassifications() | where {$_.Title -ne "Definition Updates"} | %{$UpdateScope.Classifications.Add($_)} | out-null
+
+# Include Windows and Forefront Categories only
+#$wsus.GetUpdateCategories() | where {$_.Title - contains "Windows","Forefront"} | %{$UpdateScope.Categories.Add($_)} | out-null
 
 # Process for each computer in Computer Scope
 
@@ -119,7 +122,7 @@ ForEach($Computer in $Computers) {
 	$WsusComputerName = $Computer.FullDomainName
 	$WsusTotalPatchCount = $Computer.GetUpdateInstallationSummary()
 	$WsusFailedPatchCount = $WsusTotalPatchCount.FailedCount
-	$WsusReqPatchCount = $Computer.GetUpdateInstallationSummary($UpdateScope)
+	$WsusReqPatchCount = ($Computer.GetUpdateInstallationInfoPerUpdate($UpdateScope)).Count
 	$WsusLastCheckin = $Computer.LastReportedStatusTime
 	$WsusTotalUpdateCount = $WsusTotalPatchCount.NotInstalledCount + $WsusTotalPatchCount.DownloadedCount
 	$WsusReqUpdateCount = $WsusReqPatchCount.NotInstalledCount + $WsusReqPatchCount.DownloadedCount + $WsusTotalPatchCount.FailedCount
@@ -135,13 +138,13 @@ ForEach($Computer in $Computers) {
 	} else {
 			$svrshortname = $WsusComputerName
 	}
-	$reportline = "$wsuspatchgroup,$svrshortname,$WsusComputerName,$WsusLastCheckin,$WsusTotalUpdateCount,$WsusFailedPatchCount,"
+	$reportline = "<TR><TD><a href=`"$wsuspatchgroup\$svrshortname.html`">$wsuspatchgroup\$svrshortname</a></TD><TD>$WsusComputerName</TD><TD>"+($WsusLastCheckin).ToString("dd-MM-yyyy HH:mm:ss") +"</TD><TD align=center>$WsusTotalUpdateCount</TD><TD align=center>$WsusReqPatchCount</TD><TD align=center>$WsusFailedPatchCount</TD>"
 	If ($ExcludedSvrs -ne "") {
 		ForEach($ExcludedSvr in $ExcludedSvrs) {
 			If ($Header -match $ExcludedSvr) {
 				$ServerOK=$false
 				Write-Host $Header "Excluded" -ForegroundColor Red
-				$reportline += "Excluded"
+				$reportline += "<TD align=center><font color=orange>Excluded</font></TD>"
 			}
 		}
 	}
@@ -153,7 +156,7 @@ ForEach($Computer in $Computers) {
 		if (!(Test-Path $ReportFolder)) {
 			New-Item $ReportFolder -type directory | out-null
 		}
-		$ServerDetails = $ReportFolder + $svrshortname + ".txt"
+		$ServerDetails = $ReportFolder + $svrshortname + ".html"
 		if ($WsusLastCheckin -lt (Get-Date).AddDays(-$Cfg_DaysSinceCheckIn) -or $WsusLastCheckin -eq "01/01/0001 00:00:00")
 		{
 			$Header = $WsusPatchGroup + "\" + $WsusComputerName + " >> Not Checked In in last " + $Cfg_DaysSinceCheckIn + " Days"
@@ -162,7 +165,7 @@ ForEach($Computer in $Computers) {
 			$Header | Out-File -FilePath $ServerDetails -Append
 			$ComputersNotCheckingInCount += 1
 			$ComputersNotCheckingIn += $WsusPatchGroup + "\" + $WsusComputerName + " (" + (get-date($WsusLastCheckin)).ToString("dd/MM/yyyy") + ")"
-            $reportline += "Not Checking In"
+            $reportline += "<TD align=center><font color=red>Not Checking In</font></TD>"
 			
 			ForEach($UserDetail in $UsersFile) {
                 If(($UserDetail.computer -eq $svrshortname)) {
@@ -193,9 +196,9 @@ ForEach($Computer in $Computers) {
 		{
 			# Find all Updates in Update Scope for This Computer
 			
-			$Header = $WsusPatchGroup + "\" + $WsusComputerName + " >> " + $WsusTotalUpdateCount + " Total Updates >>"
+			$Header = $WsusPatchGroup + "\" + $WsusComputerName + " >> $WsusTotalUpdateCount Total Updates >> $WsusReqPatchCount Required Updates >>"
 			Write-Host $Header -ForegroundColor Yellow -NoNewline
-			"Report Generated $Today" | Out-File -FilePath $ServerDetails
+			"Report Generated $Today <br>" | Out-File -FilePath $ServerDetails
 
 			$NeededPatches = $Computer.GetUpdateInstallationInfoPerUpdate($UpdateScope)
 			
@@ -208,10 +211,10 @@ ForEach($Computer in $Computers) {
                 write-Debug $PatchTitle
 				If ($Patch.UpdateApprovalAction -eq "Install") {
                     $UpdatesApproved +=1
-					$PatchTitle | Out-File -FilePath $ServerDetails -Append
                 }
+				"$PatchTitle - " + $Patch.UpdateApprovalAction + "<br>" | Out-File -FilePath $ServerDetails -Append
 			}
-			$line = "$Header $UpdatesApproved Approved Updates"
+			$line = "$Header $UpdatesApproved Approved Updates <br>"
 			$line | Out-File -FilePath $ServerDetails -Append
 			If ($UpdatesApproved -ge $Cfg_Unpatched_Threshold) {
 				Write-Host " $UpdatesApproved Approved Updates" -ForegroundColor Red
@@ -220,10 +223,10 @@ ForEach($Computer in $Computers) {
 				Write-Host " $UpdatesApproved Approved Updates" -ForegroundColor Yellow
 			}
 			#Write-Host "`n"
-			$reportline += $UpdatesApproved
+			$reportline += "<TD align=center>$UpdatesApproved</TD>"
 
             ForEach($UserDetail in $UsersFile) {
-                If(($UserDetail.computer -eq $svrshortname) -and ($UpdatesApproved -gt 1)) {
+                If(($UserDetail.computer -eq $svrshortname) -and ($UpdatesApproved -ge $Cfg_Unpatched_Threshold)) {
                     $UserName = $UserDetail.name
                     $UserMail = $UserDetail.mail + $Cfg_Email_Domain
                     $UserBody = "Dear $UserName<br>Your computer $svrshortname currently has <font color=red> $UpdatesApproved </font> windows updates approved and pending installation.<br><br>"
@@ -248,6 +251,7 @@ ForEach($Computer in $Computers) {
 		}
 	}
     #Write-Host $reportline
+	$reportline += "</TR>"
 	$reportline | Out-file -FilePath $ReportFile -Append -encoding ASCII
     
 }
@@ -267,6 +271,8 @@ Write-Host "`n" -NoNewline
 Write-Host $Report
 "<BR>" | Out-File -FilePath $Emailbody -Append -encoding ASCII
 $Report + "<BR>" | Out-File -FilePath $Emailbody -Append -encoding ASCII
+
+"</TABLE></BODY>" | Out-file -FilePath $ReportFile -Append -encoding ASCII
 
 Write-Host "Report URL: " $Cfg_Report_URL
 $Cfg_Report_URL + "<BR>" | Out-File -FilePath $Emailbody -Append -encoding ASCII
@@ -296,6 +302,8 @@ if($ComputersNotPatching.Count -gt 0) {
 		$ComputerNotPatching + "<BR>" | Out-File -FilePath $Emailbody -Append -encoding ASCII
 	}
 }
+
+"<br>`nScript Details: "+ ($MyInvocation.MyCommand.Definition) +" on "+ $env:COMPUTERNAME +"<br>`n" | Out-File -FilePath $Emailbody -Append -encoding ASCII
 
 if ($Cfg_Email_Report_Send) {
     $Body = Get-Content $Emailbody
